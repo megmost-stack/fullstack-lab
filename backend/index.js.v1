@@ -1,0 +1,31 @@
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+const app = express();
+app.use(cors());
+const port = 3000;
+
+// Die Verbindungsinformationen kommen aus der .env via Docker
+const pool = new Pool({
+  host: 'db', // Das ist der Service-Name in deiner compose.yml!
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: 5432,
+});
+
+app.get('/', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM users');
+    res.json({
+      message: "Grüße vom Backend!",
+      data: result.rows
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Backend läuft auf http://localhost:${port}`);
+});
