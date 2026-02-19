@@ -1,3 +1,4 @@
+name: fullstack-lab
 services:
   db:
     image: postgres:15-alpine
@@ -47,20 +48,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-  adminer:
-    image: adminer:latest
-    restart: always
-    networks:
-      - backend_net
-      - frontend_net
-    ports:
-      - "${ADMINER_PORT}:8080"
-    depends_on:
-      db:
-        condition: service_healthy
-    profiles:
-      - dev
-      
 
 networks:
   backend_net:
