@@ -1,3 +1,4 @@
+name: fullstack-lab
 services:
   db:
     image: postgres:15-alpine
@@ -6,6 +7,7 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
+      SERVICE_NAME: db #important for consul registor
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d/
@@ -19,17 +21,22 @@ services:
   backend:
     build: ./backend
     restart: always
+    dns:
+      - 172.28.0.10 # Consul IP im Backend-Netz
     environment:
-      DB_HOST: ${DB_HOST}
+      DB_HOST: db.service.consul
       DB_PORT: ${DB_PORT}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
+      SERVICE_NAME: backend #important for consul registor
     networks:
       - backend_net
       - frontend_net
     depends_on:
       db:
+        condition: service_healthy
+      consul:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/health || exit 1"]
@@ -40,6 +47,10 @@ services:
   frontend:
     build: ./frontend
     restart: always
+    dns:
+      - 172.29.0.10 # Consul IP im Backend-Netz
+    environment:
+      SERVICE_NAME: frontend #important for consul registor
     networks:
       - frontend_net
     ports:
@@ -47,6 +58,42 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  # Das Gehirn: Hier werden alle Infos gespeichert
+  consul:
+    image: hashicorp/consul:latest
+    #command: "agent -dev -client=0.0.0.0 -ui -bind=172.28.0.10 -disable-host-node-id"
+    command: "agent -dev -ui -client=0.0.0.0 -bind=172.28.0.10 -dns-port=53"
+    ports:
+      - "8500:8500" # Das Web-UI
+
+    networks:
+      backend_net:
+        ipv4_address: 172.28.0.10
+      frontend_net:
+        ipv4_address: 172.29.0.10
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Der Spion: Meldet deine anderen Container automatisch bei Consul an
+  registrator:
+    image: gliderlabs/registrator:master
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock # Erlaubt dem Spion, Docker zuzusehen
+    command: "-internal consul://172.28.0.10:8500"
+    restart: always
+    networks:
+      backend_net:
+        ipv4_address: 172.28.0.30
+      frontend_net:
+        ipv4_address: 172.29.0.30
+    depends_on:
+      consul:
+        condition: service_healthy
+
   adminer:
     image: adminer:latest
     restart: always
@@ -60,13 +107,20 @@ services:
         condition: service_healthy
     profiles:
       - dev
-      
 
 networks:
   backend_net:
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/24
   frontend_net:
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.29.0.0/24   
 
 volumes:
   db_data:
